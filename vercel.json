@@ -1,6 +1,6 @@
 {
-  "installCommand": "npm --prefix frontend install",
-  "buildCommand": "npm --prefix frontend run build",
-  "devCommand": "npm --prefix frontend run dev",
+  "installCommand": "pnpm install --frozen-lockfile",
+  "buildCommand": "pnpm run build",
+  "devCommand": "pnpm run dev",
   "framework": "nextjs"
 }
