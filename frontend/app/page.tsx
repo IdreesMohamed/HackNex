@@ -31,15 +31,32 @@ export default function Home() {
   const [showParticipants, setShowParticipants] = useState(false)
   const [search, setSearch] = useState('')
   const [autoDetect, setAutoDetect] = useState(false)
+  const [voicePlayback, setVoicePlayback] = useState(true)
+  const [speakerLabels, setSpeakerLabels] = useState(true)
+  const [saveTranscript, setSaveTranscript] = useState(true)
+  const [actionItems, setActionItems] = useState(['Share the translated transcript with the team', 'Schedule the next multilingual session', 'Review terminology preferences'])
+  const [newActionItem, setNewActionItem] = useState('')
+  const [copied, setCopied] = useState(false)
   const connector = useRef(new DemoTranslationConnector())
   const isLive = state === 'listening' || state === 'connecting'
   const latest = useMemo(() => segments[segments.length - 1], [segments])
   const filteredSegments = segments.filter((segment) => `${segment.source} ${segment.translation}`.toLowerCase().includes(search.toLowerCase()))
 
   useEffect(() => {
+    const handleSpace = (event: KeyboardEvent) => {
+      if (event.code === 'Space' && event.target instanceof HTMLElement && !['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(event.target.tagName)) {
+        event.preventDefault()
+        void toggleSession()
+      }
+    }
+    window.addEventListener('keydown', handleSpace)
     const unsubscribeState = connector.current.onStateChange(setState)
     const unsubscribeCaption = connector.current.onCaption((segment) => setSegments((current) => [...current, segment]))
-    return () => { unsubscribeState(); unsubscribeCaption() }
+    return () => {
+      window.removeEventListener('keydown', handleSpace)
+      unsubscribeState()
+      unsubscribeCaption()
+    }
   }, [])
 
   async function toggleSession() {
@@ -49,7 +66,29 @@ export default function Home() {
   }
   async function finishSession() { await connector.current.end() }
   function swapLanguages() { setSourceLanguage(targetLanguage); setTargetLanguage(sourceLanguage) }
-  function exportTranscript() { window.alert('Transcript export is ready. Connect your workspace storage to download it.') }
+  function exportTranscript() {
+    const text = segments.map((segment) => `[${segment.timestamp}] ${segment.source}\n${segment.translation}`).join('\n\n')
+    const blob = new Blob([`HackNex Live transcript\n${sourceLanguage} → ${targetLanguage}\n\n${text}`], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `hacknex-${new Date().toISOString().slice(0, 10)}.txt`
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
+  function addActionItem() {
+    const item = newActionItem.trim()
+    if (!item) return
+    setActionItems((current) => [...current, item])
+    setNewActionItem('')
+  }
+
+  async function copyRoomCode() {
+    await navigator.clipboard.writeText('HN-2048')
+    setCopied(true)
+    window.setTimeout(() => setCopied(false), 1600)
+  }
 
   return (
     <main className="app-shell">
@@ -58,7 +97,7 @@ export default function Home() {
         <nav className="main-nav" aria-label="Workspace navigation">
           {(['translate', 'notes', 'history'] as const).map((view) => <button key={view} className={activeView === view ? 'nav-active' : ''} onClick={() => setActiveView(view)}>{view === 'translate' ? 'Live room' : view === 'notes' ? 'AI notes' : 'Session history'}</button>)}
         </nav>
-        <div className="topbar-actions"><span className="session-label">ROOM <strong>HN-2048</strong></span><button className="top-action" onClick={() => setShowParticipants((current) => !current)}>● 4 live</button><button className="icon-button" aria-label="Open settings" onClick={() => setShowSettings((current) => !current)}>⚙</button><div className="avatar" aria-label="Account">AM</div></div>
+        <div className="topbar-actions"><button className="session-label" onClick={copyRoomCode} aria-label="Copy room code">ROOM <strong>HN-2048</strong>{copied ? ' · Copied' : ''}</button><button className="top-action" onClick={() => setShowParticipants((current) => !current)}>● 4 live</button><button className="icon-button" aria-label="Open settings" onClick={() => setShowSettings((current) => !current)}>⚙</button><div className="avatar" aria-label="Account">AM</div></div>
       </header>
 
       <section className="workspace">
@@ -72,11 +111,11 @@ export default function Home() {
           <div className="control-row"><div className="control-meta"><span className="mic-wave"><i /><i /><i /><i /><i /></span><span>{isLive ? 'Microphone active' : 'Microphone paused'}</span><span className="audio-badge">Audio output on</span></div><div className="controls"><button className={`mic-button ${isLive ? 'active' : ''}`} onClick={toggleSession} aria-label={isLive ? 'Pause microphone' : 'Resume microphone'}><span>{isLive ? 'Ⅱ' : '▶'}</span></button><button className="end-button" onClick={finishSession}>End session</button></div><span className="keyboard-hint">SPACE <em>to pause</em></span></div>
         </>}
 
-        {activeView === 'notes' && <section className="notes-view"><div className="notes-header"><div><p className="eyebrow">AI SESSION SUMMARY</p><h2>Conversation intelligence</h2><p>Generated live from your translated room. Edit, share, or export when ready.</p></div><button className="primary-button" onClick={exportTranscript}>Export notes ↗</button></div><div className="notes-grid"><article className="note-card accent-card"><span className="note-tag">KEY TAKEAWAYS</span><h3>Everyone can participate in their own voice.</h3><p>The conversation focused on making communication more inclusive across language boundaries.</p><div className="note-footer">Generated just now <span>98% confidence</span></div></article><article className="note-card"><span className="note-tag">ACTION ITEMS</span><ul><li>Share the translated transcript with the team</li><li>Schedule the next multilingual session</li><li>Review terminology preferences</li></ul><button className="add-button">+ Add action item</button></article><article className="note-card"><span className="note-tag">TOPICS</span><div className="topic-list"><span>Accessibility</span><span>Global teams</span><span>Product strategy</span><span>Inclusive design</span></div></article></div></section>}
+        {activeView === 'notes' && <section className="notes-view"><div className="notes-header"><div><p className="eyebrow">AI SESSION SUMMARY</p><h2>Conversation intelligence</h2><p>Generated live from your translated room. Edit, share, or export when ready.</p></div><button className="primary-button" onClick={exportTranscript}>Export notes ↗</button></div><div className="notes-grid"><article className="note-card accent-card"><span className="note-tag">KEY TAKEAWAYS</span><h3>Everyone can participate in their own voice.</h3><p>The conversation focused on making communication more inclusive across language boundaries.</p><div className="note-footer">Generated just now <span>98% confidence</span></div></article><article className="note-card"><span className="note-tag">ACTION ITEMS</span><ul>{actionItems.map((item) => <li key={item}>{item}</li>)}</ul><div className="add-action"><input value={newActionItem} onChange={(event) => setNewActionItem(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.nativeEvent.isComposing && event.keyCode !== 229) addActionItem() }} placeholder="New action item" aria-label="New action item" /><button className="add-button" onClick={addActionItem}>+ Add action item</button></div></article><article className="note-card"><span className="note-tag">TOPICS</span><div className="topic-list"><span>Accessibility</span><span>Global teams</span><span>Product strategy</span><span>Inclusive design</span></div></article></div></section>}
 
         {activeView === 'history' && <section className="history-view"><div className="notes-header"><div><p className="eyebrow">YOUR WORKSPACE</p><h2>Session history</h2><p>Find, revisit, and share every conversation.</p></div><div className="search-box">⌕ <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search sessions" /></div></div><div className="history-list"><div className="history-item"><span className="history-date">TODAY<br /><b>10:42 AM</b></span><span className="history-main"><b>Global team kickoff</b><small>Tamil → English · 24 min · 4 participants</small></span><span className="history-status">Translated</span><button className="more-button">•••</button></div><div className="history-item"><span className="history-date">YESTERDAY<br /><b>03:18 PM</b></span><span className="history-main"><b>Design review — Chennai</b><small>Hindi → English · 48 min · 8 participants</small></span><span className="history-status">Translated</span><button className="more-button">•••</button></div></div></section>}
 
-        {showSettings && <aside className="settings-panel"><div className="panel-title"><div><p className="eyebrow">WORKSPACE SETTINGS</p><h2>Room controls</h2></div><button className="close-button" onClick={() => setShowSettings(false)}>×</button></div><label className="setting-row"><span>Voice playback</span><input type="checkbox" defaultChecked /></label><label className="setting-row"><span>Speaker labels</span><input type="checkbox" defaultChecked /></label><label className="setting-row"><span>Save transcript automatically</span><input type="checkbox" defaultChecked /></label><div className="setting-row"><span>Translation engine</span><b>Sarvam Realtime <small>Connected</small></b></div><div className="provider-row"><span className="provider-icon">S</span><span><strong>Sarvam realtime</strong><small>Primary provider · 0.8s average</small></span><span className="connected">Connected</span></div></aside>}
+        {showSettings && <aside className="settings-panel"><div className="panel-title"><div><p className="eyebrow">WORKSPACE SETTINGS</p><h2>Room controls</h2></div><button className="close-button" onClick={() => setShowSettings(false)}>×</button></div><label className="setting-row"><span>Voice playback</span><input type="checkbox" checked={voicePlayback} onChange={(event) => setVoicePlayback(event.target.checked)} /></label><label className="setting-row"><span>Speaker labels</span><input type="checkbox" checked={speakerLabels} onChange={(event) => setSpeakerLabels(event.target.checked)} /></label><label className="setting-row"><span>Save transcript automatically</span><input type="checkbox" checked={saveTranscript} onChange={(event) => setSaveTranscript(event.target.checked)} /></label><div className="setting-row"><span>Translation engine</span><b>Sarvam Realtime <small>Connected</small></b></div><div className="provider-row"><span className="provider-icon">S</span><span><strong>Sarvam realtime</strong><small>Primary provider · 0.8s average</small></span><span className="connected">Connected</span></div></aside>}
         {showParticipants && <aside className="participants-panel"><div className="panel-title"><div><p className="eyebrow">LIVE ROOM</p><h2>Participants <span>4</span></h2></div><button className="close-button" onClick={() => setShowParticipants(false)}>×</button></div>{['Ananya Menon', 'Ravi Kumar', 'Sofia Chen', 'You'].map((name, index) => <div className="participant" key={name}><span className={`participant-avatar avatar-${index}`}>{name.split(' ').map((word) => word[0]).join('')}</span><span><b>{name}</b><small>{index === 3 ? 'Host · speaking' : index === 0 ? 'Speaking Tamil' : 'Listening in English'}</small></span><i className={index === 3 ? 'speaking' : ''} /></div>)}<button className="invite-button">+ Invite participants</button></aside>}
         <footer className="bottom-bar"><span><b>HackNex 2026</b> · Live translation for Indic languages</span><span>Private by design · Built for every voice <span className="footer-mark">+</span></span></footer>
       </section>
