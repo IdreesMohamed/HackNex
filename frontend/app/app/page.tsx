@@ -39,7 +39,12 @@ export default function LiveRoom() {
   useEffect(() => {
     const saved = window.localStorage.getItem('hacknex-settings')
     if (saved) { try { const v = JSON.parse(saved); setSource(v.source || 'Tamil'); setTarget(v.target || 'English'); setTerms(v.terms || []) } catch {} }
-    getSupabaseClient().auth.getUser().then(({ data }) => { setEmail(data.user?.email ?? ''); setReady(true) })
+    try {
+      getSupabaseClient().auth.getUser().then(({ data }) => { setEmail(data.user?.email ?? ''); setReady(true) }).catch(() => { setEmail(''); setReady(true) })
+    } catch {
+      setEmail('')
+      setReady(true)
+    }
     return () => { stream.current?.getTracks().forEach((track) => track.stop()) }
   }, [])
   useEffect(() => { window.localStorage.setItem('hacknex-settings', JSON.stringify({ source, target, terms })) }, [source, target, terms])
