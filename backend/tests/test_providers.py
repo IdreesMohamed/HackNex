@@ -1,6 +1,9 @@
 import pytest
 import respx
 import httpx
+import base64
+import json
+from types import SimpleNamespace
 from app.config import settings
 from app.errors import BhashaLiveException, ErrorCode
 from app.providers.sarvam_translate import SarvamTranslationProvider
@@ -117,3 +120,27 @@ def test_sarvam_asr_message_parser():
 
     # Malformed JSON
     assert provider._parse_message("not valid json") is None
+
+
+@pytest.mark.asyncio
+async def test_sarvam_asr_sends_realtime_audio_input_event():
+    class FakeWebSocket:
+        state = SimpleNamespace(name="OPEN")
+
+        def __init__(self):
+            self.sent = []
+
+        async def send(self, message):
+            self.sent.append(message)
+
+    provider = SarvamASRProvider(api_key="test-key")
+    provider.ws = FakeWebSocket()
+    provider._connected = True
+    pcm_chunk = b"\x01\x00\xff\x7f"
+
+    await provider.send_audio(pcm_chunk)
+
+    assert len(provider.ws.sent) == 1
+    message = json.loads(provider.ws.sent[0])
+    assert message["event"] == "audio_input"
+    assert base64.b64decode(message["audio"]) == pcm_chunk

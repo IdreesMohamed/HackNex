@@ -9,7 +9,7 @@ This document details the live API contracts, endpoints, query parameters, auth 
 
 * **Documentation Sources:**
   - Official Portal: [https://docs.sarvam.ai](https://docs.sarvam.ai)
-  - WebSocket Guide: `https://docs.sarvam.ai/speech-to-text-realtime/ws`
+  - Realtime Streaming API: `https://docs.sarvam.ai/api/api-guides-tutorials/speech-to-text/realtime-streaming`
   - GitHub Cookbook: [https://github.com/sarvam-ai/cookbook](https://github.com/sarvam-ai/cookbook)
 * **WebSocket Endpoint URL:**
   `wss://api.sarvam.ai/speech-to-text-realtime/ws`
@@ -24,10 +24,10 @@ This document details the live API contracts, endpoints, query parameters, auth 
   - `encoding`: `linear16` (signed 16-bit little-endian PCM)
   - `sample_rate`: `16000` (16 kHz mono)
 * **Client -> Upstream Audio Frames:**
-  - Raw binary frames containing linear16 PCM audio.
+  - JSON text frames in the realtime protocol format: `{"event": "audio_input", "audio": "<base64-encoded linear16 PCM>"}`.
   - Recommended chunk size: 100 ms – 250 ms (3,200 to 8,000 bytes at 16kHz 16-bit mono).
 * **Finalization / Flush:**
-  - Client sends JSON text frame: `{"type": "flush"}` to flush pending audio buffers and obtain the final transcription.
+  - Client sends JSON text frame: `{"event": "flush"}` to flush pending audio buffers and obtain the final transcription.
 * **Upstream -> Client Messages:**
   - Interim & final transcripts:
     ```json

@@ -33,7 +33,7 @@ Must be the first message sent immediately upon connection:
 ```
 
 ### 3.2 Binary Audio Frames
-Raw binary frames representing 16 kHz mono 16-bit PCM.
+The browser sends raw 16 kHz mono 16-bit PCM binary frames to BhashaLive. BhashaLive encodes each PCM chunk as a base64 JSON `audio_input` event when sending it to Sarvam's realtime ASR WebSocket.
 
 ### 3.3 Session End (`session.end`)
 Notifies server that the speaker has finished and requests buffer flush:

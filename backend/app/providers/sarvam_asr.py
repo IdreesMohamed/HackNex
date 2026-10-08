@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import json
 import logging
 import urllib.parse
@@ -103,7 +104,7 @@ class SarvamASRProvider(ASRProvider):
                 if self._audio_buffer:
                     logger.info(f"Replaying {len(self._audio_buffer)} buffered audio chunks")
                     for chunk in list(self._audio_buffer):
-                        await self.ws.send(chunk)
+                        await self._send_audio_frame(chunk)
                 return
             except websockets.exceptions.InvalidStatusCode as e:
                 status = e.status_code
@@ -133,7 +134,7 @@ class SarvamASRProvider(ASRProvider):
         )
 
     async def send_audio(self, chunk: bytes) -> None:
-        """Sends a PCM chunk to the upstream WebSocket, buffering locally for failover."""
+        """Sends a PCM chunk in Sarvam realtime's JSON/base64 audio_input format."""
         if self._closed:
             return
 
@@ -149,14 +150,21 @@ class SarvamASRProvider(ASRProvider):
 
         try:
             if self.ws:
-                await self.ws.send(chunk)
+                await self._send_audio_frame(chunk)
         except (ConnectionClosed, WebSocketException) as e:
             logger.warning(f"Send audio failed due to closed connection: {e}")
             self._connected = False
             # Attempt reconnect once
             await self._connect_with_retry(max_retries=1)
             if self.ws:
-                await self.ws.send(chunk)
+                await self._send_audio_frame(chunk)
+
+    async def _send_audio_frame(self, chunk: bytes) -> None:
+        if self.ws:
+            await self.ws.send(json.dumps({
+                "event": "audio_input",
+                "audio": base64.b64encode(chunk).decode("ascii"),
+            }))
 
     async def events(self) -> AsyncIterator[ASREvent]:
         """Yields parsed ASREvent objects from the upstream WebSocket stream."""
@@ -241,10 +249,9 @@ class SarvamASRProvider(ASRProvider):
                 # to trigger Sarvam VAD silence_duration_ms=1000 endpointing
                 silence_chunk = b"\x00" * 3200
                 for _ in range(10):
-                    await self.ws.send(silence_chunk)
+                    await self._send_audio_frame(silence_chunk)
                     await asyncio.sleep(0.01)
                 await self.ws.send(json.dumps({"event": "flush"}))
-                await self.ws.send(json.dumps({"type": "flush"}))
             except Exception as e:
                 logger.warning(f"Error sending flush frame to Sarvam ASR: {e}")
 
