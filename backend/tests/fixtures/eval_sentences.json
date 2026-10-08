@@ -1,0 +1,44 @@
+[
+  {
+    "category": "Tamil native",
+    "source_language": "ta-IN",
+    "target_language": "en-IN",
+    "text": "நான் நாளைக்கு சென்னைக்கு போகிறேன்.",
+    "expected_keywords": ["tomorrow", "Chennai", "go"]
+  },
+  {
+    "category": "Tamil code-mix",
+    "source_language": "ta-IN",
+    "target_language": "en-IN",
+    "text": "நான் Chennai-க்கு train ticket book செய்துவிட்டேன்.",
+    "expected_keywords": ["Chennai", "train", "ticket", "booked"]
+  },
+  {
+    "category": "Hindi code-mix",
+    "source_language": "hi-IN",
+    "target_language": "en-IN",
+    "text": "मैंने आज meeting के लिए presentation तैयार किया है।",
+    "expected_keywords": ["meeting", "presentation", "prepared", "today"]
+  },
+  {
+    "category": "English names/time",
+    "source_language": "en-IN",
+    "target_language": "ta-IN",
+    "text": "The meeting is at 10:30 AM in Coimbatore.",
+    "expected_keywords": ["Coimbatore", "10:30"]
+  },
+  {
+    "category": "Numbers",
+    "source_language": "en-IN",
+    "target_language": "hi-IN",
+    "text": "My order number is 2487 and the total is 1,250 rupees.",
+    "expected_keywords": ["2487", "1,250"]
+  },
+  {
+    "category": "Names to preserve",
+    "source_language": "en-IN",
+    "target_language": "ta-IN",
+    "text": "Welcome to HackNex at Perundurai with Google and Sarvam.",
+    "expected_keywords": ["HackNex", "Perundurai", "Google", "Sarvam"]
+  }
+]
