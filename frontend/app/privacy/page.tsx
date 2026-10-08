@@ -1,0 +1,1 @@
+export default function Privacy(){return <main className="app-shell"><section className="workspace"><h1>Privacy</h1><p>HackNex processes audio to provide translation. Sessions are stored only for signed-in users and recording requires consent.</p></section></main>}

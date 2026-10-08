@@ -1,83 +1,19 @@
 'use client'
+import { useEffect, useRef, useState, type ChangeEvent } from 'react'
+import Link from 'next/link'
+import { getSupabaseClient } from '../../lib/supabase'
+import { createRoomId, createTranslationAdapter, formatEventTime, formatMetric, audioFileIsWav, supportedLanguages, type TranslationEvent } from '../../lib/translation/client'
 
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
-import { applyMetrics, connectionStatus, createDemoAdapter, createSessionId, demoLabel, demoSample, displayConfidence, formatTimestamp, isLiveState, metricText, reduceAdapterEvent, speak, statusForAudio, statusForVoice, stopVoice, supportsSpeechSynthesis, type CaptionSegment, type ConnectionState, type MeasuredMetrics } from '../lib/connectors'
-import { getSupabaseClient } from '../lib/supabase'
-
-const languages = ['Tamil', 'Hindi', 'English', 'Malayalam']
-
-export default function Home() {
-  const [sourceLanguage, setSourceLanguage] = useState('Tamil')
-  const [targetLanguage, setTargetLanguage] = useState('English')
-  const [state, setState] = useState<ConnectionState>('ended')
-  const [segments, setSegments] = useState<CaptionSegment[]>([])
-  const [metrics, setMetrics] = useState<MeasuredMetrics>({})
-  const [detectedLanguage, setDetectedLanguage] = useState('')
-  const [autoDetect, setAutoDetect] = useState(false)
-  const [voicePlayback, setVoicePlayback] = useState(false)
-  const [showSettings, setShowSettings] = useState(false)
-  const [roomId, setRoomId] = useState('')
-  const [audioLevel, setAudioLevel] = useState(0)
-  const [micError, setMicError] = useState('')
-  const connector = useRef(createDemoAdapter())
-  const streamRef = useRef<MediaStream | null>(null)
-  const recorderRef = useRef<MediaRecorder | null>(null)
-  const active = isLiveState(state)
-  const displayedSegments = active ? segments : segments.length ? segments : demoSample
-  const latest = displayedSegments.at(-1)
-  const sourceDisplay = autoDetect && detectedLanguage ? detectedLanguage : sourceLanguage
-
-  useEffect(() => {
-    const unsubscribeState = connector.current.onStateChange(setState)
-    const unsubscribeEvent = connector.current.onEvent((event) => {
-      if (event.type === 'language_detected') setDetectedLanguage(event.language)
-      if (event.type === 'metrics') setMetrics((current) => applyMetrics(current, event))
-      setSegments((current) => reduceAdapterEvent(event, current))
-      if (event.type === 'final_translation' && voicePlayback) speak(event.text, 'en-US')
-    })
-    return () => { unsubscribeState(); unsubscribeEvent(); stopVoice(); streamRef.current?.getTracks().forEach((track) => track.stop()) }
-  }, [voicePlayback])
-
-  async function startMicrophone() {
-    setMicError('')
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      streamRef.current = stream
-      const recorder = new MediaRecorder(stream)
-      recorderRef.current = recorder
-      recorder.ondataavailable = async (event) => { if (event.data.size) connector.current.sendAudio?.(await event.data.arrayBuffer()) }
-      recorder.start(250)
-      await connector.current.connect({ sourceLanguage, targetLanguage })
-      setRoomId(createSessionId())
-      setAudioLevel(42)
-    } catch { setMicError('Microphone permission is required to start a live session.') }
-  }
-
-  function stopMicrophone() { recorderRef.current?.stop(); streamRef.current?.getTracks().forEach((track) => track.stop()); recorderRef.current = null; streamRef.current = null; setAudioLevel(0) }
-  async function toggleSession() { if (!active) { if (state === 'ended') setSegments([]); await startMicrophone() } else { stopMicrophone(); await connector.current.pause() } }
-  async function finishSession() {
-    stopMicrophone()
-    await connector.current.end()
-    if (!roomId || !segments.length) return
-
-    const supabase = getSupabaseClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-
-    await supabase.from('translation_sessions').insert({
-      user_id: user.id,
-      session_code: roomId,
-      source_language: sourceDisplay,
-      target_language: targetLanguage,
-      status: 'ended',
-      transcript: segments,
-      ended_at: new Date().toISOString(),
-    } as never)
-  }
-  async function handleAudioFile(event: ChangeEvent<HTMLInputElement>) { const file = event.target.files?.[0]; if (!file) return; setMicError(''); await connector.current.connect({ sourceLanguage, targetLanguage }); connector.current.sendAudio?.(await file.arrayBuffer()); setRoomId(createSessionId()) }
-  function exportTranscript() { const text = displayedSegments.map((segment) => `[${segment.timestamp}] ${segment.source}\n${segment.translation}`).join('\n\n'); const blob = new Blob([text], { type: 'text/plain' }); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = 'hacknex-transcript.txt'; link.click(); URL.revokeObjectURL(url) }
-  function swapLanguages() { setSourceLanguage(targetLanguage); setTargetLanguage(sourceLanguage) }
-  const filtered = useMemo(() => displayedSegments.filter((segment) => segment.source || segment.translation), [displayedSegments])
-
-  return <main className="app-shell"><header className="topbar"><div className="brand-lockup"><span className="brand-mark">H</span><span>HackNex <b>Live</b></span></div><nav className="main-nav" aria-label="Workspace navigation"><a className="nav-active" href="/">Live room</a><a href="/results">Results</a><a href="/status">Status</a></nav><div className="topbar-actions">{roomId && <span className="session-label">{roomId}</span>}<button className="icon-button" aria-label="Open settings" onClick={() => setShowSettings((value) => !value)}>⚙</button><div className="avatar">AM</div></div></header><section className="workspace"><div className="workspace-heading"><div><p className="eyebrow">LIVE TRANSLATION ROOM / 01</p><h1>Your words, understood.</h1><p className="subhead">A shared voice layer for meetings, classrooms, and everyday conversations.</p></div><div className="heading-actions"><div className="status-pill"><span className={`status-dot ${active ? 'pulse' : ''}`} />{active ? connectionStatus[state] : demoLabel}</div><button className="ghost-button" onClick={exportTranscript}>Export transcript ↗</button></div></div><div className="feature-strip"><div><span className="strip-icon">◉</span><span><b>Live captions</b><small>Typed adapter events</small></span></div><div><span className="strip-icon coral-icon">✦</span><span><b>Audio integration</b><small>Microphone and audio upload</small></span></div><div><span className="strip-icon">⌁</span><span><b>Measured latency</b><small>Never estimated</small></span></div><span className="powered">{active ? 'Live adapter session' : demoLabel}</span></div><div className="language-bar"><label><span>Speaking</span><select value={sourceLanguage} onChange={(event) => setSourceLanguage(event.target.value)}>{languages.map((language) => <option key={language}>{language}</option>)}</select></label><button className="swap-button" onClick={swapLanguages} aria-label="Swap languages">⇄</button><label><span>Translate to</span><select value={targetLanguage} onChange={(event) => setTargetLanguage(event.target.value)}>{languages.filter((language) => language !== sourceLanguage).map((language) => <option key={language}>{language}</option>)}</select></label><div className="latency"><span>MEASURED</span><strong>{metricText(metrics.timeToFirstWordMs)}</strong><small>Final: {metricText(metrics.endOfSpeechToFinalMs)}</small></div><label className="toggle-label"><span>Auto-detect</span><button className={`toggle ${autoDetect ? 'on' : ''}`} onClick={() => setAutoDetect((value) => !value)} aria-label="Toggle auto-detect"><i /></button>{autoDetect && detectedLanguage && <em>{detectedLanguage}</em>}</label></div><div className="caption-grid"><section className="caption-panel source-panel"><div className="panel-label"><span><i className="language-dot teal" />{sourceDisplay}</span>{active && <span className="live-label">LIVE</span>}</div><div className="captions">{filtered.map((segment) => <p className="caption-line" key={segment.id}>{segment.source || 'Source pending…'}<small>{segment.timestamp}</small></p>)}{active && <p className="caption-line partial">{latest?.source || 'Start speaking to see live words…'}<span className="cursor" /></p>}</div><div className="panel-footer"><span>Source transcript</span><span>{active ? 'Events streaming' : demoLabel}</span></div></section><section className="caption-panel translation-panel"><div className="panel-label"><span><i className="language-dot coral" />{targetLanguage}</span>{active && <span className="stable-label">LIVE</span>}</div><div className="captions">{filtered.map((segment) => <p className="caption-line" key={segment.id}>{segment.translation || 'Translation pending…'}<small>{displayConfidence(segment.confidence)}</small></p>)}{active && <p className="caption-line partial">{latest?.translation || 'Translation will appear here…'}<span className="cursor coral-cursor" /></p>}</div><div className="panel-footer"><span>Translated output</span><span>{active && voicePlayback && supportsSpeechSynthesis() ? 'Voice playback ready' : active ? 'Voice playback unavailable' : 'Demo output'}</span></div></section></div><div className="control-row"><div className="control-meta"><span>{active ? 'Microphone active' : 'Microphone paused'}</span><span className="audio-badge">{active ? `Audio ${statusForAudio().toLowerCase()}` : 'Audio ready on start'}</span><span className="level-meter" aria-label={`Audio level ${audioLevel}%`}><i style={{ width: `${audioLevel}%` }} /></span></div><div className="controls"><label className="upload-button">Upload audio<input type="file" accept="audio/*" onChange={handleAudioFile} /></label><button className={`mic-button ${active ? 'active' : ''}`} onClick={toggleSession} aria-label={active ? 'Pause microphone' : 'Start microphone'}><span>{active ? 'Ⅱ' : '▶'}</span></button><button className="end-button" onClick={finishSession}>End session</button></div><span className="keyboard-hint">SPACE <em>to pause</em></span></div>{micError && <p className="mic-error" role="alert">{micError}</p>}<footer className="bottom-bar"><span><b>HackNex 2026</b> · Live translation for Indic languages</span><span>Private by design · <a href="/status">System status</a></span></footer></section>{showSettings && <aside className="settings-panel"><div className="panel-title"><div><p className="eyebrow">WORKSPACE SETTINGS</p><h2>Room controls</h2></div><button className="close-button" onClick={() => setShowSettings(false)}>×</button></div><label className="setting-row"><span>Voice playback</span><input type="checkbox" checked={voicePlayback} onChange={(event) => setVoicePlayback(event.target.checked)} /></label><div className="setting-row"><span>Voice API</span><b>{statusForVoice()}</b></div><div className="setting-row"><span>Adapter events</span><b>v1 connected</b></div></aside>}</main>
+export default function LiveRoom() {
+ const [userReady,setUserReady]=useState(false),[userEmail,setUserEmail]=useState('')
+ const [live,setLive]=useState(false),[source,setSource]=useState('Tamil'),[target,setTarget]=useState('English'),[auto,setAuto]=useState(false),[detected,setDetected]=useState(''),[segments,setSegments]=useState<{source:string;translation:string;partial:boolean;time:string;confidence?:number}[]>([]),[error,setError]=useState(''),[level,setLevel]=useState(0),[first,setFirst]=useState<number>(),[final,setFinal]=useState<number>(),[terms,setTerms]=useState<string[]>([]),[term,setTerm]=useState(''),[consent,setConsent]=useState(false),[room,setRoom]=useState('')
+ const adapter=useRef(createTranslationAdapter()), stream=useRef<MediaStream | null>(null), recorder=useRef<MediaRecorder | null>(null)
+ useEffect(()=>{getSupabaseClient().auth.getUser().then(({data})=>{setUserEmail(data.user?.email??'');setUserReady(Boolean(data.user))});return()=>stream.current?.getTracks().forEach(t=>t.stop())},[])
+ function handleEvent(e:TranslationEvent){if(e.type==='language_detected')setDetected(e.language);if(e.type==='metrics'){setFirst(e.timeToFirstWordMs);setFinal(e.endOfSpeechToFinalMs)}if(e.type==='error')setError(e.message);if(['partial_source','partial_translation','committed_translation','final_translation'].includes(e.type)){const text='text' in e?e.text:'';setSegments(s=>{const last=s.at(-1);const next={source:last?.source??'',translation:last?.translation??'',partial:e.type.startsWith('partial'),time:formatEventTime(e.timestampMs),confidence:'confidence' in e?e.confidence:undefined};if(e.type.includes('source'))next.source=text;else next.translation=text;return last?.partial?[...s.slice(0,-1),next]:[...s,next]})}}
+ async function start(){setError('');if(!consent){setError('Please accept recording consent before starting.');return}if(!navigator.mediaDevices?.getUserMedia){setError('This browser does not support microphone capture.');return}try{const s=await navigator.mediaDevices.getUserMedia({audio:true});stream.current=s;const r=new MediaRecorder(s);recorder.current=r;r.ondataavailable=async e=>{if(e.data.size)adapter.current.sendAudio(await e.data.arrayBuffer())};r.start(250);adapter.current.onEvent(handleEvent);await adapter.current.connect({sourceLanguage:source,targetLanguage:target,glossary:terms,autoDetect:auto});setRoom(createRoomId());setLive(true);setLevel(38)}catch(e){setError(e instanceof DOMException&&e.name==='NotAllowedError'?'Microphone permission was denied. Allow access and try again.':'Unable to start microphone capture.')}}
+ async function stop(){recorder.current?.stop();stream.current?.getTracks().forEach(t=>t.stop());await adapter.current.end();setLive(false);setLevel(0)}
+ async function upload(e:ChangeEvent<HTMLInputElement>){const f=e.target.files?.[0];if(!f)return;if(!audioFileIsWav(f)){setError('Please choose a WAV file.');return}if(!consent){setError('Please accept recording consent before uploading.');return}setError('');await adapter.current.connect({sourceLanguage:source,targetLanguage:target,glossary:terms,autoDetect:auto});adapter.current.sendAudio(await f.arrayBuffer());setLive(true);setRoom(createRoomId())}
+ if (!userReady) return <main className="app-shell"><section className="workspace"><p className="eyebrow">ACCOUNT CHECK</p><h1>Checking your session.</h1></section></main>
+ if (!userEmail) return <main className="app-shell"><section className="workspace"><p className="eyebrow">PROTECTED LIVE ROOM</p><h1>Sign in to translate.</h1><p className="subhead">Your transcripts and usage belong to your account.</p><Link className="primary-button" href="/auth/login">Sign in</Link></section></main>
+ return <main className="app-shell"><header className="topbar"><div className="brand-lockup"><span className="brand-mark">H</span><span>HackNex <b>Live</b></span></div><nav className="main-nav"><Link href="/">Home</Link><Link className="nav-active" href="/app">Live room</Link><Link href="/results">Results</Link><Link href="/compare">Compare</Link><Link href="/status">Status</Link></nav><span>{room}</span></header><section className="workspace"><p className="eyebrow">LIVE TRANSLATION ROOM</p><h1>Make space for every voice.</h1><div className="language-bar"><label>Speaking<select value={source} onChange={e=>setSource(e.target.value)}>{supportedLanguages.map(x=><option key={x}>{x}</option>)}</select></label><label>Translate to<select value={target} onChange={e=>setTarget(e.target.value)}>{supportedLanguages.map(x=><option key={x}>{x}</option>)}</select></label><label className="check-row"><input type="checkbox" checked={auto} onChange={e=>setAuto(e.target.checked)}/> Auto-detect</label>{detected&&<span className="chip">Detected: {detected}</span>}</div><div className="heading-actions"><button className="primary-button" onClick={live?stop:start}>{live?'Stop microphone':'Start microphone'}</button><label className="ghost-button">Upload WAV<input hidden type="file" accept="audio/wav,.wav" onChange={upload}/></label><label className="check-row"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)}/> I consent to recording</label></div>{error&&<p className="error-message" role="alert">{error}</p>}<div className="feature-strip"><div><b>Microphone level</b><small>{level ? 'Capturing audio' : 'Idle'}</small><progress max="100" value={level}/></div><div><b>Time to first word</b><small>{formatMetric(first)}</small></div><div><b>End of speech → final</b><small>{formatMetric(final)}</small></div><span>{live?'Live adapter':'Demo recording'}</span></div><section className="panel"><h2>{live?'Live captions':'Demo recording'}</h2>{(live?segments:[{source:'இன்று நாம் மொழிகளுக்கு இடையே உள்ள தடைகளை உடைக்கிறோம்.',translation:'Today, we are breaking the barriers between languages.',partial:false,time:'00:02'}]).map((s,i)=><article className={s.partial?'caption provisional':'caption'} key={i}><small>{s.time}</small><p>{s.source}</p><strong>{s.translation}</strong>{s.confidence!=null&&<small>{Math.round(s.confidence*100)}% confidence</small>}</article>)}</section><section className="panel"><h2>Glossary</h2><div className="heading-actions"><input value={term} onChange={e=>setTerm(e.target.value)} placeholder="Add a term"/><button className="ghost-button" onClick={()=>{if(term.trim())setTerms([...terms,term.trim()]);setTerm('')}}>Add</button></div>{terms.map(t=><button className="chip" key={t} onClick={()=>setTerms(terms.filter(x=>x!==t))}>{t} ×</button>)}</section></section></main>
 }
