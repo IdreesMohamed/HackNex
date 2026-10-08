@@ -8,24 +8,53 @@ export type TranslationEvent =
   | { type: 'error'; message: string; timestampMs: number }
 
 export type TranslationSession = { sourceLanguage: string; targetLanguage: string; glossary: string[]; autoDetect: boolean }
-export type TranslationAdapter = { connect(session: TranslationSession): Promise<void>; sendAudio(audio: ArrayBuffer): void; pause(): Promise<void>; end(): Promise<void>; onEvent(cb: (event: TranslationEvent) => void): () => void }
+export type TranslationAdapter = { connect(session: TranslationSession): Promise<void>; sendAudio(audio: ArrayBuffer): void; attachMicrophone?(stream: MediaStream): void; pause(): Promise<void>; resume?(): Promise<void>; end(): Promise<void>; onEvent(cb: (event: TranslationEvent) => void): () => void }
 
-class MockAdapter implements TranslationAdapter {
+class BackendAdapter implements TranslationAdapter {
   private listeners = new Set<(event: TranslationEvent) => void>()
-  private timer?: ReturnType<typeof setTimeout>
+  private socket?: WebSocket
+  private sessionId?: string
+  private audioContext?: AudioContext
+  private processor?: ScriptProcessorNode
+  private sourceNode?: MediaStreamAudioSourceNode
   private started = 0
-  async connect(session: TranslationSession) { this.started = Date.now(); this.emit({ type: 'language_detected', language: session.sourceLanguage, timestampMs: Date.now() }); this.timer = setTimeout(() => { const now = Date.now(); this.emit({ type: 'partial_source', text: 'வணக்கம், அனைவரும் எப்படி இருக்கிறீர்கள்?', timestampMs: now }); this.emit({ type: 'partial_translation', text: 'Hello, how is everyone?', timestampMs: now + 120 }); this.emit({ type: 'committed_translation', text: 'Hello, how is everyone?', timestampMs: now + 480, confidence: 0.98 }); this.emit({ type: 'final_translation', text: 'Hello, how is everyone?', timestampMs: now + 620, confidence: 0.98 }); this.emit({ type: 'metrics', timeToFirstWordMs: now - this.started, endOfSpeechToFinalMs: 620, timestampMs: now + 620 }) }, 900) }
-  sendAudio(_audio: ArrayBuffer) {}
-  async pause() { if (this.timer) clearTimeout(this.timer) }
-  async end() { if (this.timer) clearTimeout(this.timer) }
+  async connect(session: TranslationSession) {
+    const base = process.env.NEXT_PUBLIC_TRANSLATION_BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL
+    if (!base) throw new Error('Translation backend URL is not configured.')
+    const response = await fetch(`${base.replace(/\/$/, '')}/api/sessions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ source_language: session.sourceLanguage, target_language: session.targetLanguage }) })
+    if (!response.ok) throw new Error('Unable to create a translation session.')
+    const created = await response.json() as { session_id: string; ws_token: string }
+    this.sessionId = created.session_id; this.started = Date.now()
+    const wsBase = base.replace(/^http/, 'ws').replace(/\/$/, '')
+    this.socket = new WebSocket(`${wsBase}/ws/translate`)
+    await new Promise<void>((resolve, reject) => { const socket = this.socket!; socket.onopen = () => { socket.send(JSON.stringify({ type: 'session.start', session_id: created.session_id, ws_token: created.ws_token, source_language: session.sourceLanguage, target_language: session.targetLanguage })); resolve() }; socket.onerror = () => reject(new Error('Unable to connect to the translation backend.')); socket.onmessage = (event) => this.handleMessage(event.data) })
+  }
+  sendAudio(audio: ArrayBuffer) { if (this.socket?.readyState === WebSocket.OPEN) this.socket.send(audio) }
+  async pause() { this.audioContext?.suspend() }
+  async resume() { this.audioContext?.resume() }
+  async end() { if (this.socket?.readyState === WebSocket.OPEN) this.socket.send(JSON.stringify({ type: 'session.end' })); this.socket?.close(); this.processor?.disconnect(); this.sourceNode?.disconnect(); await this.audioContext?.close() }
   onEvent(cb: (event: TranslationEvent) => void) { this.listeners.add(cb); return () => this.listeners.delete(cb) }
-  private emit(event: TranslationEvent) { this.listeners.forEach((listener) => listener(event)) }
+  attachMicrophone(stream: MediaStream) { const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext; if (!AudioContextClass) return; this.audioContext = new AudioContextClass({ sampleRate: 16000 }); this.sourceNode = this.audioContext.createMediaStreamSource(stream); this.processor = this.audioContext.createScriptProcessor(4096, 1, 1); this.processor.onaudioprocess = (event) => { const input = event.inputBuffer.getChannelData(0); const pcm = new ArrayBuffer(input.length * 2); const view = new DataView(pcm); input.forEach((value, index) => view.setInt16(index * 2, Math.max(-1, Math.min(1, value)) * 0x7fff, true)); this.sendAudio(pcm) }; this.sourceNode.connect(this.processor); this.processor.connect(this.audioContext.destination) }
+  private handleMessage(raw: string) { const data = JSON.parse(raw) as Record<string, unknown>; const timestampMs = typeof data.timestamp === 'number' ? data.timestamp * 1000 : Date.now(); if (data.type === 'transcript.partial') this.emit({ type: 'partial_source', text: String(data.text || ''), timestampMs }); else if (data.type === 'transcript.final') this.emit({ type: 'partial_source', text: String(data.text || ''), timestampMs }); else if (data.type === 'translation.partial') this.emit({ type: 'partial_translation', text: String(data.translated_text || ''), timestampMs }); else if (data.type === 'translation.final') { this.emit({ type: 'final_translation', text: String(data.translated_text || ''), timestampMs }); this.emit({ type: 'metrics', timeToFirstWordMs: Date.now() - this.started, endOfSpeechToFinalMs: typeof data.end_to_end_latency_ms === 'number' ? data.end_to_end_latency_ms : undefined, timestampMs }) } else if (data.type === 'error') this.emit({ type: 'error', message: String(data.safe_message || 'Translation backend error.'), timestampMs }); else if (data.type === 'session.status' && data.state === 'connected') this.emit({ type: 'language_detected', language: 'Connected', timestampMs }) }
+  protected emit(event: TranslationEvent) { this.listeners.forEach((listener) => listener(event)) }
 }
 
-export function createTranslationAdapter(): TranslationAdapter { return new MockAdapter() }
-export const supportedLanguages = ['Tamil', 'Hindi', 'English', 'Kannada', 'Telugu', 'Malayalam']
-export function formatMetric(value?: number) { return value == null ? 'Collecting' : `${Math.round(value)} ms` }
+export function createTranslationAdapter(): TranslationAdapter { return isMockEnabled() ? new MockAdapter() : new BackendAdapter() }
+
+class MockAdapter extends BackendAdapter {
+  private mockTimer?: ReturnType<typeof setTimeout>
+  async connect(session: TranslationSession) { this.mockTimer = setTimeout(() => { const now = Date.now(); this.emitMock({ type: 'language_detected', language: session.sourceLanguage, timestampMs: now }); this.emitMock({ type: 'partial_source', text: 'வணக்கம், அனைவரும் எப்படி இருக்கிறீர்கள்?', timestampMs: now }); this.emitMock({ type: 'partial_translation', text: 'Hello, how is everyone?', timestampMs: now + 120 }); this.emitMock({ type: 'final_translation', text: 'Hello, how is everyone?', timestampMs: now + 620, confidence: 0.98 }); this.emitMock({ type: 'metrics', timeToFirstWordMs: 620, endOfSpeechToFinalMs: 620, timestampMs: now + 620 }) }, 900) }
+  async pause() { if (this.mockTimer) clearTimeout(this.mockTimer) }
+  async resume() {}
+  async end() { if (this.mockTimer) clearTimeout(this.mockTimer) }
+  private emitMock(event: TranslationEvent) { this.emit(event) }
+}
+
 export function isMockEnabled() { return process.env.NEXT_PUBLIC_USE_MOCK === 'true' }
+export const supportedLanguages = ['Tamil', 'Hindi', 'English', 'Kannada', 'Telugu', 'Malayalam']
+export const languageCodes: Record<string, string> = { Tamil: 'ta-IN', Hindi: 'hi-IN', English: 'en-IN', Kannada: 'kn-IN', Telugu: 'te-IN', Malayalam: 'ml-IN' }
+export const languageNames: Record<string, string> = Object.fromEntries(Object.entries(languageCodes).map(([name, code]) => [code, name]))
+export function formatMetric(value?: number) { return value == null ? 'Collecting' : `${Math.round(value)} ms` }
 export function formatEventTime(ms: number) { return new Date(ms).toLocaleTimeString([], { minute: '2-digit', second: '2-digit' }) }
 export function audioFileIsWav(file: File) { return file.type === 'audio/wav' || file.type === 'audio/x-wav' || file.name.toLowerCase().endsWith('.wav') }
 export function createRoomId() { return `HN-${crypto.randomUUID().slice(0, 8).toUpperCase()}` }
