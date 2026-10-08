@@ -1,0 +1,1 @@
+export default function Terms(){return <main className="app-shell"><section className="workspace"><h1>Terms</h1><p>Use HackNex lawfully and only record people who have consented. Metrics are reported only when measured.</p></section></main>}
