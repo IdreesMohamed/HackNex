@@ -27,6 +27,7 @@ export default function LiveRoom() {
   const [term, setTerm] = useState('')
   const [consent, setConsent] = useState(false)
   const [room, setRoom] = useState('')
+  const [sessionId, setSessionId] = useState<string>()
   const [stabilityOpen, setStabilityOpen] = useState(false)
   const [startedAt, setStartedAt] = useState<number>()
   const [elapsed, setElapsed] = useState(0)
@@ -37,23 +38,24 @@ export default function LiveRoom() {
   const latest = segments.at(-1)
 
   useEffect(() => {
-    const saved = window.localStorage.getItem('hacknex-settings')
-    if (saved) { try { const v = JSON.parse(saved); setSource(v.source || 'Tamil'); setTarget(v.target || 'English'); setTerms(v.terms || []) } catch {} }
     try {
-      getSupabaseClient().auth.getUser().then(({ data }) => { setEmail(data.user?.email ?? ''); setReady(true) }).catch(() => { setEmail(''); setReady(true) })
+      const supabase = getSupabaseClient()
+      if (!supabase) { setReady(true); return }
+      supabase.auth.getUser().then(({ data }) => { setEmail(data.user?.email ?? ''); setReady(true) }).catch(() => { setEmail(''); setReady(true) })
     } catch {
       setEmail('')
       setReady(true)
     }
     return () => { stream.current?.getTracks().forEach((track) => track.stop()) }
   }, [])
-  useEffect(() => { window.localStorage.setItem('hacknex-settings', JSON.stringify({ source, target, terms })) }, [source, target, terms])
   useEffect(() => { if (!startedAt || !live) return; const timer = window.setInterval(() => setElapsed(Date.now() - startedAt), 1000); return () => window.clearInterval(timer) }, [startedAt, live])
 
   function handleEvent(event: TranslationEvent) {
     if (event.type === 'language_detected') setDetected(event.language)
     if (event.type === 'metrics') { setFirst(event.timeToFirstWordMs); setFinal(event.endOfSpeechToFinalMs) }
-    if (event.type === 'error') { setError(event.message); setState('error') }
+      if (event.type === 'error') { setError(event.message); setState('error') }
+    const supabase = getSupabaseClient()
+    if (supabase && sessionId && event.type !== 'metrics') void supabase.from('translation_sessions').update({ transcript: segments }).eq('id', sessionId)
     if (['partial_source', 'partial_translation', 'committed_translation', 'final_translation'].includes(event.type)) {
       const text = 'text' in event ? event.text : ''
       setSegments((current) => {
@@ -69,16 +71,23 @@ export default function LiveRoom() {
     setError(''); if (!consent) { setError('Microphone access is required for live translation. Accept recording consent before starting.'); return }
     if (!navigator.mediaDevices?.getUserMedia) { setError('This browser does not support microphone capture.'); setState('error'); return }
     setState('requesting-permission')
+    if (!getSupabaseClient()) { setError('Supabase is not configured in this preview.'); setState('error'); return }
     try {
       const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true }); stream.current = audioStream
       const mediaRecorder = new MediaRecorder(audioStream); recorder.current = mediaRecorder
       mediaRecorder.ondataavailable = async (event) => { if (event.data.size) adapter.current.sendAudio(await event.data.arrayBuffer()) }
       mediaRecorder.start(250); setState('connecting'); adapter.current.onEvent(handleEvent)
       await adapter.current.connect({ sourceLanguage: source, targetLanguage: target, glossary: terms, autoDetect: auto })
-      setRoom(createRoomId()); setStartedAt(Date.now()); setState('listening'); setLevel(42)
+      const supabase = getSupabaseClient()
+      const { data: userData } = await supabase.auth.getUser()
+      const sessionCode = createRoomId()
+      if (!userData.user) throw new Error('Please sign in again before starting a session.')
+      const { data: savedSession, error: saveError } = await supabase.from('translation_sessions').insert({ user_id: userData.user.id, session_code: sessionCode, source_language: source, target_language: target, status: 'live' }).select('id').single()
+      if (saveError) throw saveError
+      setSessionId(savedSession.id); setRoom(sessionCode); setStartedAt(Date.now()); setState('listening'); setLevel(42)
     } catch (cause) { setError(cause instanceof DOMException && cause.name === 'NotAllowedError' ? 'Microphone access is required for live translation.' : 'Unable to start microphone capture. Check that a microphone is connected.'); setState('error') }
   }
-  async function stop() { recorder.current?.stop(); stream.current?.getTracks().forEach((track) => track.stop()); await adapter.current.end(); setState('stopped'); setLevel(0) }
+  async function stop() { recorder.current?.stop(); stream.current?.getTracks().forEach((track) => track.stop()); await adapter.current.end(); const supabase = getSupabaseClient(); if (supabase && sessionId) await supabase.from('translation_sessions').update({ status: 'ended', transcript: segments, ended_at: new Date().toISOString() }).eq('id', sessionId); setState('stopped'); setLevel(0) }
   async function upload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]; if (!file) return
     if (!audioFileIsWav(file)) { setError('Please choose a WAV file.'); return }
