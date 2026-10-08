@@ -1,0 +1,4 @@
+export default function StatusPage() {
+  const checks = [{ name: 'Frontend', status: 'Operational', detail: 'Next.js workspace is serving' }, { name: 'Translation adapter', status: 'Demo mode', detail: 'Connect a translation service to enable live provider events' }, { name: 'Audio capture', status: 'Browser controlled', detail: 'Microphone permission is requested only when you start a room' }]
+  return <main className="app-shell"><section className="workspace results-page"><p className="eyebrow">SYSTEM STATUS</p><h1>HackNex Live status</h1><p className="subhead">Transparent service health for the current workspace.</p><div className="status-list">{checks.map((check) => <article className="note-card" key={check.name}><div className="panel-label"><span><i className="status-dot" />{check.name}</span><strong>{check.status}</strong></div><p>{check.detail}</p></article>)}</div><a className="ghost-button" href="/">Back to live room</a></section></main>
+}
