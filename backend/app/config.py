@@ -9,10 +9,6 @@ class Settings(BaseSettings):
         extra="ignore",
         case_sensitive=False,
     )
-
-    @model_validator(mode="before")
-    @classmethod
-    
     # --- App ---
     app_env: str = "development"
     log_level: str = "INFO"
