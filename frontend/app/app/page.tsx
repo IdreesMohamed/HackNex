@@ -57,7 +57,8 @@ export default function LiveRoom() {
   function handleEvent(event: TranslationEvent) {
     if (event.type === 'language_detected') setDetected(languageNames[event.language] ?? event.language)
     if (event.type === 'metrics') { setFirst(event.timeToFirstWordMs); setFinal(event.endOfSpeechToFinalMs) }
-      if (event.type === 'error') { setError(event.message); setState('error') }
+    if (event.type === 'error') { setError(event.message); setState('error') }
+    if (event.type === 'final_translation' && event.text.trim()) speakTranslation(event.text, target)
     const supabase = getSupabaseClient()
     if (supabase && sessionId && event.type !== 'metrics') void supabase.from('translation_sessions').update({ transcript: segments }).eq('id', sessionId)
     if (['partial_source', 'partial_translation', 'committed_translation', 'final_translation'].includes(event.type)) {
@@ -70,6 +71,14 @@ export default function LiveRoom() {
         return previous?.partial ? [...current.slice(0, -1), next] : [...current, next]
       })
     }
+  }
+  function speakTranslation(text: string, language: string) {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return
+    window.speechSynthesis.cancel()
+    const utterance = new SpeechSynthesisUtterance(text)
+    utterance.lang = languageCodes[language] ?? language
+    utterance.rate = 0.95
+    window.speechSynthesis.speak(utterance)
   }
   async function connect() {
     setError(''); if (!consent) { setError('Please check the recording consent box below before starting. Your browser microphone permission prompt will appear next.'); return }
