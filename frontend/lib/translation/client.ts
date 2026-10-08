@@ -19,10 +19,9 @@ class BackendAdapter implements TranslationAdapter {
   private sourceNode?: MediaStreamAudioSourceNode
   private started = 0
   async connect(session: TranslationSession) {
-    const base = process.env.NEXT_PUBLIC_TRANSLATION_BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL
-    if (!base) throw new Error('Translation backend URL is not configured.')
+    const base = (process.env.NEXT_PUBLIC_TRANSLATION_BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000').trim()
     const response = await fetch(`${base.replace(/\/$/, '')}/api/sessions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ source_language: session.sourceLanguage, target_language: session.targetLanguage }) })
-    if (!response.ok) throw new Error('Unable to create a translation session.')
+    if (!response.ok) { const detail = await response.text().catch(() => ''); throw new Error(detail ? `Translation backend rejected the session (${response.status}).` : `Translation backend is unavailable at ${base}. Start the backend or configure NEXT_PUBLIC_TRANSLATION_BACKEND_URL.`) }
     const created = await response.json() as { session_id: string; ws_token: string }
     this.sessionId = created.session_id; this.started = Date.now()
     const wsBase = base.replace(/^http/, 'ws').replace(/\/$/, '')
