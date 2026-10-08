@@ -1,7 +1,8 @@
 import os
 import re
 from typing import Any, List, Optional
-from pydantic_settings import BaseSettings, SettingsConfigDict, model_validator
+from pydantic import model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _ENV_REFERENCE = re.compile(r"^process\.env\.([A-Z0-9_]+)$")
 
