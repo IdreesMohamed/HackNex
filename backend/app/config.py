@@ -14,8 +14,8 @@ class Settings(BaseSettings):
     # --- App ---
     app_env: str = "development"
     log_level: str = "INFO"
-    cors_origins: str = "http://localhost:5173,http://localhost:3000"
-    allowed_ws_origins: str = "http://localhost:5173,http://localhost:3000"
+    cors_origins: str = "*"
+    allowed_ws_origins: str = "*"
     session_token_secret: str = "bhashalive_default_dev_secret_change_in_prod"
 
     # --- Sarvam (Primary) ---
