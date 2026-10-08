@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { applyMetrics, connectionStatus, createDemoAdapter, createSessionId, demoLabel, demoSample, displayConfidence, formatTimestamp, isLiveState, metricText, reduceAdapterEvent, speak, statusForAudio, statusForVoice, stopVoice, supportsSpeechSynthesis, type CaptionSegment, type ConnectionState, type MeasuredMetrics } from '../lib/connectors'
+import { getSupabaseClient } from '../lib/supabase'
 
 const languages = ['Tamil', 'Hindi', 'English', 'Malayalam']
 
@@ -54,7 +55,25 @@ export default function Home() {
 
   function stopMicrophone() { recorderRef.current?.stop(); streamRef.current?.getTracks().forEach((track) => track.stop()); recorderRef.current = null; streamRef.current = null; setAudioLevel(0) }
   async function toggleSession() { if (!active) { if (state === 'ended') setSegments([]); await startMicrophone() } else { stopMicrophone(); await connector.current.pause() } }
-  async function finishSession() { stopMicrophone(); await connector.current.end() }
+  async function finishSession() {
+    stopMicrophone()
+    await connector.current.end()
+    if (!roomId || !segments.length) return
+
+    const supabase = getSupabaseClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+
+    await supabase.from('translation_sessions').insert({
+      user_id: user.id,
+      session_code: roomId,
+      source_language: sourceDisplay,
+      target_language: targetLanguage,
+      status: 'ended',
+      transcript: segments,
+      ended_at: new Date().toISOString(),
+    } as never)
+  }
   async function handleAudioFile(event: ChangeEvent<HTMLInputElement>) { const file = event.target.files?.[0]; if (!file) return; setMicError(''); await connector.current.connect({ sourceLanguage, targetLanguage }); connector.current.sendAudio?.(await file.arrayBuffer()); setRoomId(createSessionId()) }
   function exportTranscript() { const text = displayedSegments.map((segment) => `[${segment.timestamp}] ${segment.source}\n${segment.translation}`).join('\n\n'); const blob = new Blob([text], { type: 'text/plain' }); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = 'hacknex-transcript.txt'; link.click(); URL.revokeObjectURL(url) }
   function swapLanguages() { setSourceLanguage(targetLanguage); setTargetLanguage(sourceLanguage) }
