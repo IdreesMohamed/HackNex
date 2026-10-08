@@ -1,5 +1,6 @@
 export type TranslationEvent =
   | { type: 'partial_source'; text: string; timestampMs: number }
+  | { type: 'final_source'; text: string; timestampMs: number }
   | { type: 'partial_translation'; text: string; timestampMs: number }
   | { type: 'committed_translation'; text: string; timestampMs: number; confidence?: number }
   | { type: 'final_translation'; text: string; timestampMs: number; confidence?: number }
@@ -18,8 +19,6 @@ class BackendAdapter implements TranslationAdapter {
   private processor?: ScriptProcessorNode
   private sourceNode?: MediaStreamAudioSourceNode
   private started = 0
-  private fallbackTimer?: ReturnType<typeof setTimeout>
-  private fallback = false
   async connect(session: TranslationSession) {
     this.started = Date.now()
     const base = (process.env.NEXT_PUBLIC_TRANSLATION_BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000').trim()
@@ -31,18 +30,19 @@ class BackendAdapter implements TranslationAdapter {
       const wsBase = base.replace(/^http/, 'ws').replace(/\/$/, '')
       this.socket = new WebSocket(`${wsBase}/ws/translate`)
       await new Promise<void>((resolve, reject) => { const socket = this.socket!; socket.onopen = () => { socket.send(JSON.stringify({ type: 'session.start', session_id: created.session_id, ws_token: created.ws_token, source_language: session.sourceLanguage, target_language: session.targetLanguage })); resolve() }; socket.onerror = () => reject(new Error('backend-websocket')); socket.onmessage = (event) => this.handleMessage(event.data) })
-    } catch {
-      this.fallback = true
-      this.fallbackTimer = setTimeout(() => { const now = Date.now(); this.emit({ type: 'language_detected', language: session.sourceLanguage, timestampMs: now }); this.emit({ type: 'partial_source', text: 'Speak naturally and your captions will appear here.', timestampMs: now }); this.emit({ type: 'partial_translation', text: 'Live translation is ready.', timestampMs: now + 120 }); this.emit({ type: 'final_translation', text: 'Live translation is ready.', timestampMs: now + 620, confidence: 0.98 }); this.emit({ type: 'metrics', timeToFirstWordMs: 620, endOfSpeechToFinalMs: 620, timestampMs: now + 620 }) }, 700)
+    } catch (cause) {
+      const detail = cause instanceof DOMException && cause.name === 'TimeoutError' ? 'Realtime backend timed out.' : 'Realtime backend unavailable. Check the Render service URL and deployment.'
+      this.emit({ type: 'error', message: detail, timestampMs: Date.now() })
+      throw new Error(detail)
     }
   }
-  sendAudio(audio: ArrayBuffer) { if (!this.fallback && this.socket?.readyState === WebSocket.OPEN) this.socket.send(audio) }
+  sendAudio(audio: ArrayBuffer) { if (this.socket?.readyState === WebSocket.OPEN) this.socket.send(audio) }
   async pause() { this.audioContext?.suspend() }
   async resume() { this.audioContext?.resume() }
   async end() { if (this.socket?.readyState === WebSocket.OPEN) this.socket.send(JSON.stringify({ type: 'session.end' })); this.socket?.close(); this.processor?.disconnect(); this.sourceNode?.disconnect(); await this.audioContext?.close() }
   onEvent(cb: (event: TranslationEvent) => void) { this.listeners.add(cb); return () => this.listeners.delete(cb) }
   attachMicrophone(stream: MediaStream) { const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext; if (!AudioContextClass) return; this.audioContext = new AudioContextClass({ sampleRate: 16000 }); this.sourceNode = this.audioContext.createMediaStreamSource(stream); this.processor = this.audioContext.createScriptProcessor(4096, 1, 1); this.processor.onaudioprocess = (event) => { const input = event.inputBuffer.getChannelData(0); const pcm = new ArrayBuffer(input.length * 2); const view = new DataView(pcm); input.forEach((value, index) => view.setInt16(index * 2, Math.max(-1, Math.min(1, value)) * 0x7fff, true)); this.sendAudio(pcm) }; this.sourceNode.connect(this.processor); const silentGain = this.audioContext.createGain(); silentGain.gain.value = 0; this.processor.connect(silentGain); silentGain.connect(this.audioContext.destination); void this.audioContext.resume() }
-  private handleMessage(raw: string) { const data = JSON.parse(raw) as Record<string, unknown>; const timestampMs = typeof data.timestamp === 'number' ? data.timestamp * 1000 : Date.now(); if (data.type === 'transcript.partial') this.emit({ type: 'partial_source', text: String(data.text || ''), timestampMs }); else if (data.type === 'transcript.final') this.emit({ type: 'partial_source', text: String(data.text || ''), timestampMs }); else if (data.type === 'translation.partial') this.emit({ type: 'partial_translation', text: String(data.translated_text || ''), timestampMs }); else if (data.type === 'translation.final') { this.emit({ type: 'final_translation', text: String(data.translated_text || ''), timestampMs }); this.emit({ type: 'metrics', timeToFirstWordMs: Date.now() - this.started, endOfSpeechToFinalMs: typeof data.end_to_end_latency_ms === 'number' ? data.end_to_end_latency_ms : undefined, timestampMs }) } else if (data.type === 'error') this.emit({ type: 'error', message: String(data.safe_message || 'Translation backend error.'), timestampMs }); else if (data.type === 'session.status' && data.state === 'connected') this.emit({ type: 'language_detected', language: 'Connected', timestampMs }) }
+  private handleMessage(raw: string) { const data = JSON.parse(raw) as Record<string, unknown>; const timestampMs = typeof data.timestamp === 'number' ? data.timestamp * 1000 : Date.now(); if (data.type === 'transcript.partial') this.emit({ type: 'partial_source', text: String(data.text || ''), timestampMs }); else if (data.type === 'transcript.final') this.emit({ type: 'final_source', text: String(data.text || ''), timestampMs }); else if (data.type === 'translation.partial') this.emit({ type: 'partial_translation', text: String(data.translated_text || ''), timestampMs }); else if (data.type === 'translation.final') { this.emit({ type: 'final_translation', text: String(data.translated_text || ''), timestampMs }); this.emit({ type: 'metrics', timeToFirstWordMs: Date.now() - this.started, endOfSpeechToFinalMs: typeof data.end_to_end_latency_ms === 'number' ? data.end_to_end_latency_ms : undefined, timestampMs }) } else if (data.type === 'error') this.emit({ type: 'error', message: String(data.safe_message || 'Translation backend error.'), timestampMs }); else if (data.type === 'session.status' && data.state === 'connected') this.emit({ type: 'language_detected', language: 'Connected', timestampMs }) }
   protected emit(event: TranslationEvent) { this.listeners.forEach((listener) => listener(event)) }
 }
 
