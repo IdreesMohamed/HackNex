@@ -1,6 +1,10 @@
-from typing import List, Optional
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+import os
+import re
+from typing import Any, List, Optional
+from pydantic_settings import BaseSettings, SettingsConfigDict, model_validator
+
+
+_ENV_REFERENCE = re.compile(r"^process\\.env\\.([A-Z0-9_]+)$")
 
 
 class Settings(BaseSettings):
@@ -10,6 +14,28 @@ class Settings(BaseSettings):
         extra="ignore",
         case_sensitive=False,
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def resolve_render_env_references(cls, values: Any) -> Any:
+        if not isinstance(values, dict):
+            return values
+        resolved = dict(values)
+        for key, value in resolved.items():
+            if not isinstance(value, str):
+                continue
+            match = _ENV_REFERENCE.fullmatch(value.strip())
+            if not match:
+                continue
+            referenced_name = match.group(1)
+            referenced_value = os.getenv(referenced_name)
+            if referenced_value is not None and referenced_value != value:
+                resolved[key] = referenced_value
+            elif key in {"cors_origins", "allowed_ws_origins"}:
+                resolved[key] = "*"
+            else:
+                resolved[key] = ""
+        return resolved
 
     # --- App ---
     app_env: str = "development"
