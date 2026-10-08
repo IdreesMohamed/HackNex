@@ -27,7 +27,7 @@ export const demoSample: CaptionSegment[] = [
   { id: 'demo-2', source: 'ஒவ்வொருவரும் தங்கள் குரலில் பங்கேற்கலாம்.', translation: 'Everyone can participate in their own voice.', timestamp: '00:08', confidence: 0.97 },
 ]
 export const connectionStatus: Record<ConnectionState, string> = { idle: 'Paused', connecting: 'Connecting', listening: 'Listening live', degraded: 'Degraded', ended: 'Session ended', error: 'Connection error' }
-export const languageCode: Record<string, string> = { Tamil: 'ta-IN', Hindi: 'hi-IN', English: 'en-US', Malayalam: 'ml-IN' }
+export const languageCode: Record<string, string> = { Tamil: 'ta-IN', Hindi: 'hi-IN', English: 'en-US', Kannada: 'kn-IN', Telugu: 'te-IN', Malayalam: 'ml-IN' }
 
 export class DemoTranslationConnector implements TranslationConnector {
   private eventListeners = new Set<(event: AdapterEvent) => void>()

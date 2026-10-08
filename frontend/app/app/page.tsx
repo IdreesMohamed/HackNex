@@ -8,7 +8,7 @@ import { audioFileIsWav, createRoomId, createTranslationAdapter, downloadFile, f
 type Segment = { source: string; translation: string; partial: boolean; time: string; confidence?: number }
 type SessionState = 'idle' | 'requesting-permission' | 'connecting' | 'listening' | 'paused' | 'reconnecting' | 'error' | 'stopped'
 
-const native: Record<string, string> = { English: 'English', Hindi: 'हिन्दी', Tamil: 'தமிழ்', Malayalam: 'മലയാളം' }
+const native: Record<string, string> = { Tamil: 'தமிழ்', Hindi: 'हिन्दी', English: 'English', Kannada: 'ಕನ್ನಡ', Telugu: 'తెలుగు', Malayalam: 'മലയാളം' }
 
 export default function LiveRoom() {
   const [ready, setReady] = useState(false)
