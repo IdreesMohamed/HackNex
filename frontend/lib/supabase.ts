@@ -1,14 +1,8 @@
-import { createClient } from '@supabase/supabase-js'
+import { createClient as createBrowserClient } from './supabase/client'
 
-let browserClient: ReturnType<typeof createClient> | null = null
+let browserClient: ReturnType<typeof createBrowserClient> | null = null
 
 export function getSupabaseClient() {
-  if (!browserClient) {
-    browserClient = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    )
-  }
-
+  if (!browserClient) browserClient = createBrowserClient()
   return browserClient
 }
