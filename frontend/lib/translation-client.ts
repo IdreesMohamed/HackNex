@@ -13,7 +13,8 @@ export type TranslationClient = {
 
 export function createTranslationClient(options: { source: string; target: string; glossary: Record<string, string>; token?: string }): TranslationClient {
   const listeners = new Set<(event: TranslationEvent) => void>()
-  const socketUrl = process.env.NEXT_PUBLIC_TRANSLATION_WS_URL
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL
+  const socketUrl = apiUrl ? `${apiUrl.replace(/\/$/, '').replace(/^https:/, 'wss:').replace(/^http:/, 'ws:')}/ws/translate` : undefined
   let socket: WebSocket | undefined
   const emit = (event: TranslationEvent) => listeners.forEach((listener) => listener(event))
   return {
