@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import Link from 'next/link'
 import { getSupabaseClient } from '../../lib/supabase'
-import { audioFileIsWav, createRoomId, createTranslationAdapter, downloadFile, formatEventTime, formatMetric, languageCodes, languageNames, seconds, supportedLanguages, type TranslationEvent } from '../../lib/translation/client'
+import { audioFileIsWav, createRoomId, createTranslationAdapter, downloadFile, formatEventTime, formatMetric, latencyRating, median, languageCodes, languageNames, seconds, supportedLanguages, type TranslationEvent } from '../../lib/translation/client'
 
 type Segment = { source: string; translation: string; partial: boolean; time: string; confidence?: number }
 type SessionState = 'idle' | 'requesting-permission' | 'connecting' | 'listening' | 'paused' | 'reconnecting' | 'error' | 'stopped'
@@ -23,6 +23,8 @@ export default function LiveRoom() {
   const [level, setLevel] = useState(0)
   const [first, setFirst] = useState<number>()
   const [final, setFinal] = useState<number>()
+  const [firstSamples, setFirstSamples] = useState<number[]>([])
+  const [finalSamples, setFinalSamples] = useState<number[]>([])
   const [terms, setTerms] = useState<string[]>([])
   const [term, setTerm] = useState('')
   const [consent, setConsent] = useState(false)
@@ -56,7 +58,7 @@ export default function LiveRoom() {
 
   function handleEvent(event: TranslationEvent) {
     if (event.type === 'language_detected') setDetected(languageNames[event.language] ?? event.language)
-    if (event.type === 'metrics') { setFirst(event.timeToFirstWordMs); setFinal(event.endOfSpeechToFinalMs) }
+    if (event.type === 'metrics') { if (event.timeToFirstWordMs != null) { const v = event.timeToFirstWordMs; setFirst(v); setFirstSamples((prev) => [...prev.slice(-19), v]) } if (event.endOfSpeechToFinalMs != null) { const v = event.endOfSpeechToFinalMs; setFinal(v); setFinalSamples((prev) => [...prev.slice(-19), v]) } }
     if (event.type === 'error') { setError(event.message); setState('error') }
     if (event.type === 'final_translation' && event.text.trim()) speakTranslation(event.text, target)
     const supabase = getSupabaseClient()
@@ -123,6 +125,7 @@ export default function LiveRoom() {
         <section className="primary-column">
           <div className="language-switcher panel"><div className="language-field"><span className="panel-label">Speaking</span><label className="language-select"><span>{sourceLabel}</span><small>{source}</small><select value={source} onChange={(event) => setSource(event.target.value)} disabled={live} aria-label="Speaking language">{supportedLanguages.map((language) => <option key={language} value={language}>{native[language]} — {language}</option>)}</select><b aria-hidden="true">⌄</b></label></div><button className="swap-button" aria-label="Swap languages" onClick={() => { setSource(target); setTarget(source) }} disabled={live}>⇄</button><div className="language-field"><span className="panel-label">Translate to</span><label className="language-select"><span>{targetLabel}</span><small>{target}</small><select value={target} onChange={(event) => setTarget(event.target.value)} disabled={live} aria-label="Translation target language">{supportedLanguages.map((language) => <option key={language} value={language}>{native[language]} — {language}</option>)}</select><b>⌄</b></label></div><label className="auto-detect"><input type="checkbox" checked={auto} onChange={(event) => setAuto(event.target.checked)} disabled={live} /><span><b>Auto-detect</b><small>{detected ? `Detected ${detected}` : 'Listen for source language'}</small></span></label></div>
           <section className="caption-workspace panel"><div className="caption-topline"><span className="panel-label">LIVE CAPTIONS</span><span className={`live-badge ${live ? 'active' : ''}`}><i className="dot" />{live ? 'LIVE' : 'IDLE'}</span></div><div className="source-caption"><span className="caption-language">{sourceLabel} <small>{source}</small></span><p>{latest?.source || 'Start speaking to see your words here.'}</p></div><div className="caption-divider" /><div className="translation-caption"><span className="caption-language">{targetLabel} <small>{target}</small></span><p className={latest?.partial ? 'provisional' : ''}>{latest?.translation || 'Your translated speech appears here.'}{live && <span className="caret" />}</p></div>{!live && <span className="demo-note">Demo recording · No live audio is active</span>}</section>
+          {(live || first != null || final != null) && <div className={`latency-badge tone-${latencyRating(first).tone}`} role="status" aria-label="Live latency"><span className="latency-dot" /><span className="latency-title">LIVE LATENCY · {latencyRating(first).label}</span><span className="latency-stat"><small>First word</small><b>{formatMetric(first)}</b></span><span className="latency-stat"><small>Speech end → final</small><b>{formatMetric(final)}</b></span><span className="latency-stat"><small>Median ({Math.max(firstSamples.length, finalSamples.length)})</small><b>{firstSamples.length ? formatMetric(median(firstSamples)) : '—'} / {finalSamples.length ? formatMetric(median(finalSamples)) : '—'}</b></span></div>}
           <div className="audio-strip panel"><div className="audio-state"><button className={`mic-button ${live ? 'active' : ''}`} onClick={live ? stop : connect} aria-label={live ? 'Stop microphone' : 'Start microphone'}><span>◉</span></button><div><strong>{live ? 'Listening…' : 'Start speaking'}</strong><small>{live ? 'Microphone active' : 'Press to begin a live session'}</small></div></div><div className="waveform" aria-label={`Audio level ${level}%`}>{Array.from({ length: 28 }, (_, index) => <i key={index} style={{ height: `${live ? Math.max(10, ((index * 17 + level) % 52)) : 10}%` }} />)}</div><div className="audio-time"><strong>{startedAt ? `${String(Math.floor(elapsed / 60000)).padStart(2, '0')}:${String(Math.floor(elapsed / 1000) % 60).padStart(2, '0')}` : '00:00'}</strong><small>SESSION</small></div></div>
           <div className={`control-row ${!consent ? 'consent-needed' : ''}`}><button className="secondary-button" onClick={async () => { if (state === 'paused') { await adapter.current.resume?.(); setState('listening') } else { await adapter.current.pause(); setState('paused') } }} disabled={!live}>{state === 'paused' ? 'Resume' : 'Pause'}</button><button className="secondary-button" onClick={() => { setSource(target); setTarget(source) }} disabled={live}>⇄ Swap</button><span className="consent-control"><input type="checkbox" id="consent" checked={consent} onChange={(event) => setConsent(event.target.checked)} /><label htmlFor="consent">I consent to microphone recording for this session.</label></span></div>
         </section>
