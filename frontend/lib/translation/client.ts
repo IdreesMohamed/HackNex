@@ -21,7 +21,7 @@ class BackendAdapter implements TranslationAdapter {
   private started = 0
   async connect(session: TranslationSession) {
     this.started = Date.now()
-    const base = (process.env.NEXT_PUBLIC_TRANSLATION_BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000').trim()
+    const base = (process.env.NEXT_PUBLIC_TRANSLATION_BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'https://hacknex-5sk1.onrender.com').trim()
     try {
       const response = await fetch(`${base.replace(/\/$/, '')}/api/sessions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ source_language: session.sourceLanguage, target_language: session.targetLanguage }), signal: AbortSignal.timeout(5000) })
       if (!response.ok) throw new Error('backend-rejected')
