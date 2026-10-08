@@ -1,4 +1,8 @@
 'use client'
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
+
+export function AppHeader(){const pathname=usePathname();if(pathname==='/')return null;return <header className="app-header"><Link className="brand-lockup" href="/"><span className="brand-mark">H</span><span>HackNex</span></Link><nav className="app-nav" aria-label="Main navigation"><Link className={pathname==='/app'?'active':''} href="/app">Live room</Link><Link className={pathname==='/compare'?'active':''} href="/compare">Compare</Link><Link className={pathname==='/results'?'active':''} href="/results">Results</Link><Link className={pathname==='/status'?'active':''} href="/status">Status</Link></nav><div className="header-actions"><ThemeToggle/><Link className="primary-button compact" href="/app">Open room</Link></div></header>}
 export function ThemeToggle(){const [light,setLight]=useState(false);useEffect(()=>{const saved=document.documentElement.dataset.theme==='light';setLight(saved)},[]);function toggle(){const next=!light;setLight(next);document.documentElement.dataset.theme=next?'light':'dark';document.cookie=`hacknex-theme=${next?'light':'dark'};path=/;max-age=31536000`};return <button className="ghost-button" onClick={toggle} aria-label="Toggle theme">{light?'Dark theme':'Light theme'}</button>}
 export function AppFooter(){return <footer className="footer"><span>HackNex Live Translate · clear speech across languages.</span><span className="footer-links"><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/status">Status</a><span>HackNex 2026</span></span></footer>}
