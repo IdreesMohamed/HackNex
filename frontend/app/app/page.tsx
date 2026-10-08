@@ -61,11 +61,11 @@ export default function LiveRoom() {
     if (event.type === 'final_translation' && event.text.trim()) speakTranslation(event.text, target)
     const supabase = getSupabaseClient()
     if (supabase && sessionId && event.type !== 'metrics') void supabase.from('translation_sessions').update({ transcript: segments }).eq('id', sessionId)
-    if (['partial_source', 'partial_translation', 'committed_translation', 'final_translation'].includes(event.type)) {
+    if (['partial_source', 'final_source', 'partial_translation', 'committed_translation', 'final_translation'].includes(event.type)) {
       const text = 'text' in event ? event.text : ''
       setSegments((current) => {
         const previous = current.at(-1)
-        const next: Segment = { source: previous?.source ?? '', translation: previous?.translation ?? '', partial: event.type.startsWith('partial'), time: formatEventTime(event.timestampMs), confidence: 'confidence' in event ? event.confidence : undefined }
+        const next: Segment = { source: previous?.source ?? '', translation: previous?.translation ?? '', partial: event.type.startsWith('partial') || event.type === 'final_source', time: formatEventTime(event.timestampMs), confidence: 'confidence' in event ? event.confidence : undefined }
         if (event.type.includes('source')) next.source = text
         else next.translation = text
         return previous?.partial ? [...current.slice(0, -1), next] : [...current, next]
