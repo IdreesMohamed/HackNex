@@ -8,6 +8,7 @@
     "start": "npm --prefix frontend run start"
   },
   "dependencies": {
-    "mammoth": "^1.13.0"
+    "mammoth": "^1.13.0",
+    "next": "16.4.0"
   }
 }
