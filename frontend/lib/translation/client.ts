@@ -23,7 +23,7 @@ class MockAdapter implements TranslationAdapter {
 }
 
 export function createTranslationAdapter(): TranslationAdapter { return new MockAdapter() }
-export const supportedLanguages = ['English', 'Hindi', 'Tamil', 'Malayalam']
+export const supportedLanguages = ['Tamil', 'Hindi', 'English', 'Kannada', 'Telugu', 'Malayalam']
 export function formatMetric(value?: number) { return value == null ? 'Collecting' : `${Math.round(value)} ms` }
 export function isMockEnabled() { return process.env.NEXT_PUBLIC_USE_MOCK === 'true' }
 export function formatEventTime(ms: number) { return new Date(ms).toLocaleTimeString([], { minute: '2-digit', second: '2-digit' }) }
