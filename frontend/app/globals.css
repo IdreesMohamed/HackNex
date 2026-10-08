@@ -2,9 +2,11 @@
 
 :root { --ink:#1d2626; --muted:#879090; --line:#e0e5e2; --paper:#f7f8f6; --white:#fff; --teal:#27a89b; --coral:#e77d67; }
 * { box-sizing:border-box; }
-body { margin:0; color:var(--ink); background:var(--paper); font-family:'Manrope',system-ui,sans-serif; }
+body { margin:0; color:var(--ink); background:radial-gradient(circle at 50% -20%,#ffffff 0,#f7f8f6 42%,#f1f4f1 100%); font-family:'Manrope',system-ui,sans-serif; }
 button, select { font:inherit; }
 button { cursor:pointer; }
+button:focus-visible, select:focus-visible { outline:3px solid rgba(39,168,155,.3); outline-offset:3px; }
+::selection { color:#fff; background:var(--teal); }
 .app-shell { min-height:100vh; }
 .topbar { height:72px; display:flex; align-items:center; justify-content:space-between; padding:0 4.6vw; border-bottom:1px solid var(--line); background:rgba(255,255,255,.74); }
 .brand-lockup { display:flex; align-items:center; gap:11px; font-size:15px; letter-spacing:-.02em; font-weight:700; }.brand-lockup b { color:var(--teal); font-weight:700; }.brand-mark { display:grid; place-items:center; width:30px; height:30px; color:#fff; background:var(--ink); border-radius:9px; font-weight:800; }
