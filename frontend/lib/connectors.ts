@@ -23,6 +23,7 @@ export interface TranslationConnector {
   pause(): Promise<void>
   resume(): Promise<void>
   end(): Promise<void>
+  sendAudio?(audioChunk: ArrayBuffer): void
   onCaption(callback: (segment: CaptionSegment) => void): () => void
   onStateChange(callback: (state: ConnectionState) => void): () => void
 }
@@ -45,6 +46,9 @@ export class DemoTranslationConnector implements TranslationConnector {
     }, 1200)
   }
 
+  sendAudio(_audioChunk: ArrayBuffer) {
+    // Demo mode accepts audio chunks so the same capture flow works without a service.
+  }
   async pause() { this.emitState('idle') }
   async resume() { this.emitState('listening') }
   async end() { this.stopped = true; if (this.timer) clearTimeout(this.timer); this.emitState('ended') }

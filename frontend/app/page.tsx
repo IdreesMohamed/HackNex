@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { DemoTranslationConnector, type CaptionSegment, type ConnectionState } from '../lib/connectors'
 
 const languages = [
@@ -37,7 +37,14 @@ export default function Home() {
   const [actionItems, setActionItems] = useState(['Share the translated transcript with the team', 'Schedule the next multilingual session', 'Review terminology preferences'])
   const [newActionItem, setNewActionItem] = useState('')
   const [copied, setCopied] = useState(false)
+  const [micError, setMicError] = useState('')
+  const [audioLevel, setAudioLevel] = useState(0)
+  const [isRecording, setIsRecording] = useState(false)
   const connector = useRef(new DemoTranslationConnector())
+  const mediaRecorder = useRef<MediaRecorder | null>(null)
+  const mediaStream = useRef<MediaStream | null>(null)
+  const audioContext = useRef<AudioContext | null>(null)
+  const meterFrame = useRef<number | null>(null)
   const isLive = state === 'listening' || state === 'connecting'
   const latest = useMemo(() => segments[segments.length - 1], [segments])
   const filteredSegments = segments.filter((segment) => `${segment.source} ${segment.translation}`.toLowerCase().includes(search.toLowerCase()))
@@ -59,12 +66,76 @@ export default function Home() {
     }
   }, [])
 
+  useEffect(() => () => {
+    if (meterFrame.current) cancelAnimationFrame(meterFrame.current)
+    mediaStream.current?.getTracks().forEach((track) => track.stop())
+    audioContext.current?.close()
+  }, [])
+
+  async function startMicrophone() {
+    setMicError('')
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setMicError('Microphone capture is not supported in this browser.')
+      return
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } })
+      mediaStream.current = stream
+      const recorder = new MediaRecorder(stream)
+      mediaRecorder.current = recorder
+      recorder.ondataavailable = async (event) => {
+        if (event.data.size > 0) connector.current.sendAudio?.(await event.data.arrayBuffer())
+      }
+      recorder.start(250)
+      setIsRecording(true)
+      const context = new AudioContext()
+      audioContext.current = context
+      const analyser = context.createAnalyser()
+      analyser.fftSize = 256
+      context.createMediaStreamSource(stream).connect(analyser)
+      const data = new Uint8Array(analyser.frequencyBinCount)
+      const measure = () => {
+        analyser.getByteFrequencyData(data)
+        const average = data.reduce((sum, value) => sum + value, 0) / data.length
+        setAudioLevel(Math.min(100, Math.round(average * 1.8)))
+        meterFrame.current = requestAnimationFrame(measure)
+      }
+      measure()
+    } catch {
+      setMicError('Microphone access was blocked. Allow microphone permission and try again.')
+      setIsRecording(false)
+    }
+  }
+
+  function stopMicrophone() {
+    mediaRecorder.current?.stop()
+    mediaStream.current?.getTracks().forEach((track) => track.stop())
+    mediaRecorder.current = null
+    mediaStream.current = null
+    if (meterFrame.current) cancelAnimationFrame(meterFrame.current)
+    audioContext.current?.close()
+    audioContext.current = null
+    setAudioLevel(0)
+    setIsRecording(false)
+  }
+
+  async function handleAudioFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    if (!file) return
+    setMicError('')
+    const buffer = await file.arrayBuffer()
+    connector.current.sendAudio?.(buffer)
+    setIsRecording(true)
+    window.setTimeout(() => setIsRecording(false), Math.min(30000, Math.max(1200, file.size / 80)))
+  }
+
   async function toggleSession() {
+    if (!isRecording) await startMicrophone()
     if (isLive) await connector.current.pause()
     else if (state === 'ended') { setSegments([]); await connector.current.connect({ sourceLanguage, targetLanguage }) }
     else await connector.current.resume()
   }
-  async function finishSession() { await connector.current.end() }
+  async function finishSession() { stopMicrophone(); await connector.current.end() }
   function swapLanguages() { setSourceLanguage(targetLanguage); setTargetLanguage(sourceLanguage) }
   function exportTranscript() {
     const text = segments.map((segment) => `[${segment.timestamp}] ${segment.source}\n${segment.translation}`).join('\n\n')
@@ -108,7 +179,7 @@ export default function Home() {
         {activeView === 'translate' && <>
           <div className="language-bar"><label><span>Speaking</span><select value={sourceLanguage} onChange={(event) => setSourceLanguage(event.target.value)}>{languages.map((language) => <option key={language.value} value={language.value}>{language.value} · {language.native}</option>)}</select></label><button className="swap-button" onClick={swapLanguages} aria-label="Swap languages">⇄</button><label><span>Translate to</span><select value={targetLanguage} onChange={(event) => setTargetLanguage(event.target.value)}>{languages.map((language) => <option key={language.value} value={language.value}>{language.value} · {language.native}</option>)}</select></label><div className="latency"><span>LATENCY</span><strong>0.8s</strong></div><label className="toggle-label"><span>Auto-detect</span><button className={`toggle ${autoDetect ? 'on' : ''}`} onClick={() => setAutoDetect(!autoDetect)} aria-label="Toggle auto-detect"><i /></button></label></div>
           <div className="caption-grid"><section className="caption-panel source-panel"><div className="panel-label"><span><i className="language-dot teal" />{sourceLanguage}</span><span className="live-label">LIVE</span></div><div className="captions">{filteredSegments.map((segment) => <p className="caption-line" key={segment.id}>{segment.source}<small>{segment.timestamp}</small></p>)}{isLive && <p className="caption-line partial">{latest?.source ?? 'Start speaking to see your words here…'}<span className="cursor" /></p>}</div><div className="panel-footer"><span>Source transcript</span><span>{autoDetect ? 'Auto-detect on' : 'Auto-detect off'}</span></div></section><section className="caption-panel translation-panel"><div className="panel-label"><span><i className="language-dot coral" />{targetLanguage}</span><span className="stable-label">STABLE</span></div><div className="captions">{filteredSegments.map((segment) => <p className="caption-line" key={segment.id}>{segment.translation}<small>{Math.round((segment.confidence ?? .98) * 100)}% match</small></p>)}{isLive && <p className="caption-line partial">{latest?.translation ?? 'Translation will appear here…'}<span className="cursor coral-cursor" /></p>}</div><div className="panel-footer"><span>Translated output</span><span>Voice playback ready</span></div></section></div>
-          <div className="control-row"><div className="control-meta"><span className="mic-wave"><i /><i /><i /><i /><i /></span><span>{isLive ? 'Microphone active' : 'Microphone paused'}</span><span className="audio-badge">Audio output on</span></div><div className="controls"><button className={`mic-button ${isLive ? 'active' : ''}`} onClick={toggleSession} aria-label={isLive ? 'Pause microphone' : 'Resume microphone'}><span>{isLive ? 'Ⅱ' : '▶'}</span></button><button className="end-button" onClick={finishSession}>End session</button></div><span className="keyboard-hint">SPACE <em>to pause</em></span></div>
+          <div className="control-row"><div className="control-meta"><span className="mic-wave"><i /><i /><i /><i /><i /></span><span>{isRecording ? 'Microphone active' : isLive ? 'Microphone ready' : 'Microphone paused'}</span><span className="audio-badge">Audio output on</span><span className="level-meter" aria-label={`Audio level ${audioLevel}%`}><i style={{ width: `${audioLevel}%` }} /></span></div><div className="controls"><label className="upload-button">Upload WAV<input type="file" accept="audio/wav,audio/wave,audio/*" onChange={handleAudioFile} /></label><button className={`mic-button ${isLive ? 'active' : ''}`} onClick={toggleSession} aria-label={isLive ? 'Pause microphone' : 'Resume microphone'}><span>{isLive ? 'Ⅱ' : '▶'}</span></button><button className="end-button" onClick={finishSession}>End session</button></div><span className="keyboard-hint">SPACE <em>to pause</em></span></div>{micError && <p className="mic-error" role="alert">{micError}</p>}
         </>}
 
         {activeView === 'notes' && <section className="notes-view"><div className="notes-header"><div><p className="eyebrow">AI SESSION SUMMARY</p><h2>Conversation intelligence</h2><p>Generated live from your translated room. Edit, share, or export when ready.</p></div><button className="primary-button" onClick={exportTranscript}>Export notes ↗</button></div><div className="notes-grid"><article className="note-card accent-card"><span className="note-tag">KEY TAKEAWAYS</span><h3>Everyone can participate in their own voice.</h3><p>The conversation focused on making communication more inclusive across language boundaries.</p><div className="note-footer">Generated just now <span>98% confidence</span></div></article><article className="note-card"><span className="note-tag">ACTION ITEMS</span><ul>{actionItems.map((item) => <li key={item}>{item}</li>)}</ul><div className="add-action"><input value={newActionItem} onChange={(event) => setNewActionItem(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.nativeEvent.isComposing && event.keyCode !== 229) addActionItem() }} placeholder="New action item" aria-label="New action item" /><button className="add-button" onClick={addActionItem}>+ Add action item</button></div></article><article className="note-card"><span className="note-tag">TOPICS</span><div className="topic-list"><span>Accessibility</span><span>Global teams</span><span>Product strategy</span><span>Inclusive design</span></div></article></div></section>}
