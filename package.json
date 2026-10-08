@@ -2,17 +2,12 @@
   "name": "hacknex",
   "private": true,
   "version": "0.1.0",
-  "packageManager": "npm@11.6.2",
-  "engines": {
-    "node": ">=20.9.0"
-  },
   "scripts": {
     "dev": "npm --prefix frontend run dev",
     "build": "npm --prefix frontend run build",
     "start": "npm --prefix frontend run start"
   },
   "dependencies": {
-    "mammoth": "^1.13.0",
-    "next": "16.4.0"
+    "mammoth": "^1.13.0"
   }
 }

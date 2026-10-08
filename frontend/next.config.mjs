@@ -1,7 +1,4 @@
 const nextConfig = {
-  turbopack: {
-    root: process.cwd(),
-  },
   headers: async () => [
     {
       source: '/(.*)',
