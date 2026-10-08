@@ -1,0 +1,4 @@
+'use client'
+import { useEffect, useState } from 'react'
+export function ThemeToggle(){const [light,setLight]=useState(false);useEffect(()=>{const saved=document.documentElement.dataset.theme==='light';setLight(saved)},[]);function toggle(){const next=!light;setLight(next);document.documentElement.dataset.theme=next?'light':'dark';document.cookie=`hacknex-theme=${next?'light':'dark'};path=/;max-age=31536000`};return <button className="ghost-button" onClick={toggle} aria-label="Toggle theme">{light?'Dark theme':'Light theme'}</button>}
+export function AppFooter(){return <footer className="footer"><span>HackNex Live Translate · clear speech across languages.</span><span style={{float:'right'}}><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/status">Status</a>HackNex 2026</span></footer>}
