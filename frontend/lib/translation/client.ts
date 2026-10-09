@@ -23,17 +23,21 @@ class BackendAdapter implements TranslationAdapter {
   private firstWordSeen = false
   async connect(session: TranslationSession) {
     this.started = Date.now()
-    const base = (process.env.NEXT_PUBLIC_TRANSLATION_BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'https://hacknex-5sk1.onrender.com').trim()
+    const base = process.env.NEXT_PUBLIC_API_URL?.trim().replace(/\/$/, '')
+    if (!base) throw new Error('NEXT_PUBLIC_API_URL is not configured.')
+    const apiUrl = new URL(base)
+    const wsBase = new URL(base)
+    wsBase.protocol = apiUrl.protocol === 'https:' ? 'wss:' : 'ws:'
+    const wsUrl = `${wsBase.toString().replace(/\/$/, '')}/ws/translate`
     try {
-      const response = await fetch(`${base.replace(/\/$/, '')}/api/sessions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ source_language: session.sourceLanguage, target_language: session.targetLanguage }), signal: AbortSignal.timeout(5000) })
+      const response = await fetch(`${base}/api/sessions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ source_language: session.sourceLanguage, target_language: session.targetLanguage }), signal: AbortSignal.timeout(5000) })
       if (!response.ok) throw new Error('backend-rejected')
       const created = await response.json() as { session_id: string; ws_token: string }
       this.sessionId = created.session_id
-      const wsBase = base.replace(/^http/, 'ws').replace(/\/$/, '')
-      this.socket = new WebSocket(`${wsBase}/ws/translate`)
-      await new Promise<void>((resolve, reject) => { const socket = this.socket!; let settled = false; socket.onopen = () => { socket.send(JSON.stringify({ type: 'session.start', session_id: created.session_id, ws_token: created.ws_token, source_language: session.sourceLanguage, target_language: session.targetLanguage })) }; socket.onerror = () => { if (!settled) { settled = true; reject(new Error('backend-websocket')) } }; socket.onclose = () => { if (!settled) { settled = true; reject(new Error('backend-websocket')) } }; socket.onmessage = (event) => { const data = JSON.parse(String(event.data)) as Record<string, unknown>; this.handleMessage(String(event.data)); if (data.type === 'session.status' && data.state === 'connected' && !settled) { settled = true; resolve() } if (data.type === 'error' && !settled) { settled = true; reject(new Error(String(data.safe_message || 'Realtime backend rejected the session.'))) } } })
+      this.socket = new WebSocket(wsUrl)
+      await new Promise<void>((resolve, reject) => { const socket = this.socket!; let settled = false; socket.onopen = () => { socket.send(JSON.stringify({ type: 'session.start', session_id: created.session_id, ws_token: created.ws_token, source_language: session.sourceLanguage, target_language: session.targetLanguage })) }; socket.onerror = () => { if (!settled) { settled = true; reject(new Error(`Realtime backend unavailable. URL tried: ${wsUrl}. Close code: unavailable.`)) } }; socket.onclose = (event) => { if (!settled) { settled = true; reject(new Error(`Realtime backend unavailable. URL tried: ${wsUrl}. Close code: ${event.code}.`)) } }; socket.onmessage = (event) => { const data = JSON.parse(String(event.data)) as Record<string, unknown>; this.handleMessage(String(event.data)); if (data.type === 'session.status' && data.state === 'connected' && !settled) { settled = true; resolve() } if (data.type === 'error' && !settled) { settled = true; reject(new Error(`${String(data.safe_message || 'Realtime backend rejected the session.')} URL tried: ${wsUrl}. Close code: unavailable.`)) } } })
     } catch (cause) {
-      const detail = cause instanceof DOMException && cause.name === 'TimeoutError' ? 'Realtime backend timed out.' : 'Realtime backend unavailable. Check the Render service URL and deployment.'
+      const detail = cause instanceof Error && cause.message.includes('URL tried:') ? cause.message : cause instanceof DOMException && cause.name === 'TimeoutError' ? `Realtime backend timed out. URL tried: ${wsUrl}.` : `Realtime backend unavailable. URL tried: ${wsUrl}. Close code: unavailable.`
       this.emit({ type: 'error', message: detail, timestampMs: Date.now() })
       throw new Error(detail)
     }
